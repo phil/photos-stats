@@ -4,9 +4,12 @@
 require 'bundler/inline'
 gemfile do
   source 'https://rubygems.org'
+  gem "activesupport"
   gem "thor"
   gem "sqlite3"
 end
+
+require 'json'
 
 module PhotosStats
 
@@ -29,6 +32,36 @@ module PhotosStats
         end
         puts ""
       end
+    end
+
+    desc "export", "Export stats about your photos library as JSON"
+    def export
+
+      data = {
+        total_photos: 0,
+        first_photo: nil,
+        last_photo: nil,
+
+        photos_per_month: {},
+        
+        cameras: [],
+        makes: [],
+        lenses: [],
+      }
+
+      connection.execute(<<-SQL).each do |row|
+select zcameramodel, zcameramake, datetime(min(zasset.ZDATECREATED), 'auto', '+31 years'), datetime(max(zasset.ZDATECREATED), 'auto', '+31 years'), count(*), group_concat(ZLENSMODEL) 
+from zextendedattributes 
+join zasset on zextendedattributes.ZASSET = zasset.z_pk
+WHERE ZASSET.ZTRASHEDDATE IS NULL
+group by zcameramodel order by zcameramodel ASC;
+SQL
+
+        data[:cameras] << { name: row[0], make: row[1], first: row[2], last: row[3], count: row[4], lenses: row[5] && row[5].split(",").sort.uniq }
+      end
+
+      puts JSON.dump(data)
+
     end
 
     private
