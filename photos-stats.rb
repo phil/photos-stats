@@ -42,12 +42,48 @@ module PhotosStats
         first_photo: nil,
         last_photo: nil,
 
+        photos_per_day: {},
         photos_per_month: {},
+        photos_per_year: {},
         
-        cameras: [],
         makes: [],
+        cameras: [],
         lenses: [],
       }
+
+      ############################
+      # Library stats
+      ############################
+
+      connection.execute(<<-SQL).each do |row|
+select count(*), date(min(zdatecreated), 'auto', '+31 years'), datetime(max(zdatecreated), 'auto', '+31 years') from zasset where ztrasheddate is null;
+SQL
+        data[:total_photos] = row[0]
+        data[:first_photo] = row[1]
+        data[:last_photo] = row[2]
+      end
+
+      connection.execute(<<-SQL).each do |row|
+select date(zasset.ZDATECREATED, 'auto', '+31 years', 'start of day') d, count(*) c from zasset where ztrasheddate is null group by d order by d;
+SQL
+        data[:photos_per_day][row[0]] = row[1]
+      end
+
+      connection.execute(<<-SQL).each do |row|
+select date(zasset.ZDATECREATED, 'auto', '+31 years', 'start of month') d, count(*) c from zasset where ztrasheddate is null group by d order by d;
+SQL
+        data[:photos_per_month][row[0]] = row[1]
+      end
+
+      connection.execute(<<-SQL).each do |row|
+select date(zasset.ZDATECREATED, 'auto', '+31 years', 'start of year') d, count(*) c from zasset where ztrasheddate is null group by d order by d;
+SQL
+        data[:photos_per_year][row[0]] = row[1]
+      end
+
+      ############################
+      # Cameras
+      ############################
 
       connection.execute(<<-SQL).each do |row|
 select zcameramodel, zcameramake, datetime(min(zasset.ZDATECREATED), 'auto', '+31 years'), datetime(max(zasset.ZDATECREATED), 'auto', '+31 years'), count(*), group_concat(ZLENSMODEL) 
@@ -57,8 +93,42 @@ WHERE ZASSET.ZTRASHEDDATE IS NULL
 group by zcameramodel order by zcameramodel ASC;
 SQL
 
-        data[:cameras] << { name: row[0], make: row[1], first: row[2], last: row[3], count: row[4], lenses: row[5] && row[5].split(",").sort.uniq }
+        data[:cameras] << { 
+          name: row[0],
+          make: row[1],
+          first: row[2],
+          last: row[3],
+          count: row[4],
+          lenses: row[5] && row[5].split(",").sort.uniq
+        }
       end
+
+      ############################
+      # Lenses
+      ############################
+
+      connection.execute(<<-SQL).each do |row|
+select zlensmodel, datetime(min(zasset.ZDATECREATED), 'auto', '+31 years'), datetime(max(zasset.ZDATECREATED), 'auto', '+31 years'), count(*), group_concat(zcameramodel) 
+from zextendedattributes 
+join zasset on zextendedattributes.ZASSET = zasset.z_pk
+WHERE ZASSET.ZTRASHEDDATE IS NULL
+group by zlensmodel order by zlensmodel ASC;
+SQL
+
+        data[:lenses] << { 
+          name: row[0],
+          first: row[1],
+          last: row[2],
+          count: row[3],
+          cameras: row[4] && row[4].split(",").sort.uniq
+        }
+      end
+
+      ############################
+      # Export
+      # 
+      # this outputs to stdout, so you can pipe it to a file
+      ############################
 
       puts JSON.dump(data)
 
